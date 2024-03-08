@@ -1,4 +1,4 @@
-function channels = get_channels(SimulationParameters)
+function [channels, channels1] = get_channels(SimulationParameters)
     %POC Summary of this function goes here
     %   Detailed explanation goes here
     AliceAnt = qd_arrayant(SimulationParameters.Alice.antenna);
@@ -31,7 +31,8 @@ function channels = get_channels(SimulationParameters)
     
         case 'Normal'
             disp('Simulation Layout: Alice AP transmits to Bob and Eve that act as normal STAs')
-    
+            
+            
             rx_positions = [SimulationParameters.Bob.pos,SimulationParameters.Eve.pos];
             layout.tx_array = AliceAnt;
             layout.no_tx = 1;
@@ -47,7 +48,9 @@ function channels = get_channels(SimulationParameters)
             end
             layout.rx_array(1) = BobAnt;
             layout.rx_array(2) = EveAnt;
-    
+            
+
+
         case 'Eavesdropping'
             
             disp('Simulation Layout: Alice AP transmits to Bob STA, Eve eavedrops the data')
@@ -133,7 +136,7 @@ function channels = get_channels(SimulationParameters)
             
             
     
-        case 'Reply'
+        case 'Replay'
             
             disp('Simulation Layout: Alice AP transmits to Bob STA, Eve eavedrops the data from one terminal and redirect it to the otherone')
             
@@ -222,12 +225,12 @@ function channels = get_channels(SimulationParameters)
     % Generating a layout.channel impulse responses
      
     [channels, builder] = layout.get_channels;         %channels canali tra Alice-Bob e Alice-Eve
-    [channels1, builder1] = layout1.get_channels;      %channels1 canali tra Bob-Alice e Bob-Eve
+    if strcmp(SimulationParameters.scen_layout,'Jamming') || strcmp(SimulationParameters.scen_layout,'Replay') || strcmp(SimulationParameters.scen_layout,'Eavesdropping')
+        [channels1, builder1] = layout1.get_channels;      %channels1 canali tra Bob-Alice e Bob-Eve
+    else
+        channels1 = [];
+    end
    
     
-    
-    
-
-
-end
+  end
 

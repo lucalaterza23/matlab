@@ -1,4 +1,4 @@
-function stats = perform_transmission(dataIn,channel,SimulationParameters)
+function stats = perform_transmission_with_replay(dataIn,dataEve,norm_channel, replay_channel,SimulationParameters)
 
 
 
@@ -28,7 +28,16 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
     % Set the remaining variables for the simulation.
     
     % Get the baseband sampling rate
-    fs = wlanSampleRate(SimulationParameters.cfgHE);   %20 MHz
+    fs = wlanSampleRate(SimulationParameters.cfgHE);
+
+    % Reply Data
+    replayData = dataEve.rxPSDU;
+    
+
+    % Legitimate Channel Coefficient
+    leg_channel = norm_channel(1,1).coeff;
+    % Reply Channel Coefficient ( Reply on Bob)
+    replay_channel = replay_channel(1,1).coeff;
     
     % Get the OFDM info
     ofdmInfo = wlanHEOFDMInfo('HE-Data',SimulationParameters.cfgHE);
@@ -80,14 +89,46 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
             txPSDU = dataIn;
             tx = wlanWaveformGenerator(txPSDU,SimulationParameters.cfgHE);
             tx = tx.*(10^(SimulationParameters.Alice.txpower/20));
-
+            
+            % Generate reply waveform
+            tx_replay = wlanWaveformGenerator(replayData,SimulationParameters.cfgHE);
+            tx_replay = tx_replay.*(10^(SimulationParameters.Eve.txpower/20));
+            
             % Add trailing zeros to allow for channel filter delay
             txPad = [tx; zeros(15,SimulationParameters.cfgHE.NumTransmitAntennas)]; 
+
+            % Add trailing zeros to allow for channel filter delay on reply waveform
+            tx_replayPad = [tx_replay; zeros(15,SimulationParameters.cfgHE.NumTransmitAntennas)]; 
             
             % Pass the waveform through the Quadriga Channel
-            coeff = squeeze(channel.coeff);
+            coeff = squeeze(leg_channel);
             rx_time = conv(txPad,coeff,'same');
-            rx = awgn(rx_time,snr(i),'measured');
+            rx_legitimate = awgn(rx_time, snr(i),'measured');
+            
+            % Pass the reply signal to the Channel
+            r_coeff = squeeze(replay_channel);
+            rx_replay = conv(tx_replayPad,r_coeff,'same');
+
+            % N.B. In questo caso il multiband combiner è impostato sul
+            % sample rate di generazione dell'onda (fs), dato che
+            % supponiamo che Eve trasmetta esattamente sullo stesso canale
+            % di Alice - Bob, non c'è offset e le due forme d'onda si
+            % sovrappongono perfettamente
+            mbc = comm.MultibandCombiner( ...
+                     InputSampleRate=fs, ...
+                     FrequencyOffsets=[0 0], ...
+                     OutputSampleRateSource="Auto");
+           
+            rx = mbc([rx_legitimate,rx_replay]);
+            
+
+            n_pw = 10*log10(mean(abs(rx_time).^2)) - snr(i);
+            n_pw = 10^(n_pw/10);
+            
+            sinr(i) = 10*log10(mean(abs(rx_time).^2)) - (  10*log10(mean(abs(rx_replay).^2) + n_pw));
+
+            
+            
             % Packet detect and determine coarse packet offset
             coarsePktOffset = wlanPacketDetect(rx,SimulationParameters.cfgHE.ChannelBandwidth);
             if isempty(coarsePktOffset) % If empty no L-STF detected; packet error
@@ -183,6 +224,7 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
         bitErrorRate(i) = numBitErrors/totBits;
         if SimulationParameters.verbose
             disp(['SNR ' num2str(snr(i))...
+                  'SINR Reply ' num2str(sinr(i))...
                   ' completed after '  num2str(n-1) ' packets,'...
                   ' PER: ' num2str(packetErrorRate(i)) ...
                   ' BER: ' num2str(bitErrorRate(i))]);
@@ -192,7 +234,8 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
 
     % Capacità canale 
     channel_capacity = 20e6 * log2(1 + 10.^(snr/10));
-    
+    channel_capacity_with_replay = 20e6 * log2(1 + 10.^(sinr/10));
+
     % Plot Packet Error Rate vs SNR Results
     if SimulationParameters.show_transmission
         figure;
@@ -215,14 +258,37 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
         ylabel('Channel capacity [bits per second]');
         title('802.11ax 20MHz, MCS3, Direct Mapping, 1x1 Quadriga Channel Model 3GPP 38.901 Indoor LOS');
 
+        figure;
+        semilogy(sinr,channel_capacity_with_replay,'-ob');
+        grid on;
+        xlabel('SNR [dB]');
+        ylabel('Channel capacity on Replay Attack [bits per second]');
+        title('802.11ax 20MHz, MCS3, Direct Mapping, 1x1 Quadriga Channel Model 3GPP 38.901 Indoor LOS');
+
+
+        figure;
+        hold on;
+        pspectrum(rx_time,fs);
+        pspectrum(rx_replay,fs);
+        legend('Legitimate Tx Waveform', 'Replay Tx Waveform')
+
+        figure;
+        pspectrum(rx,fs)
+        title('Combined Tx/Replay Tx Waveform at Bob')
     end
    
     stats.per = packetErrorRate;
     stats.ber = bitErrorRate;
-    stats.channcap= channel_capacity;
+    stats.channcap= channel_capacity_with_replay;
     stats.txPSDU = txPSDU;
-    stats.rxPSDU = rxPSDU;
+    if exist('rxPSDU','var')
+        stats.rxPSDU = rxPSDU;
+        stats.rx = rx;
+    else
+        stats.rxPSDU = [];
+        stats.rx = [];
+    end
     stats.tx = tx;
-    stats.rx = rx;
+    stats.sinr = sinr;
 end
 

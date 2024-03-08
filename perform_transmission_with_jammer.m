@@ -1,4 +1,4 @@
-function stats = perform_transmission(dataIn,channel,SimulationParameters)
+function stats = perform_transmission_with_jammer(dataIn,norm_channel, jam_channel,SimulationParameters)
 
 
 
@@ -28,7 +28,17 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
     % Set the remaining variables for the simulation.
     
     % Get the baseband sampling rate
-    fs = wlanSampleRate(SimulationParameters.cfgHE);   %20 MHz
+    fs = wlanSampleRate(SimulationParameters.cfgHE);
+
+    % Get jammer power
+    jammer_power = SimulationParameters.jammer_power;
+    jammer_init = barrageJammer('ERP',jammer_power,'SamplesPerFrame',fs);
+    jammer_signal = jammer_init();
+
+    % Legitimate Channel Coefficient
+    leg_channel = norm_channel(1,1).coeff;
+    % Jammer Channel Coefficient ( Jamming on Bob)
+    jam_channel = jam_channel(2,1).coeff;
     
     % Get the OFDM info
     ofdmInfo = wlanHEOFDMInfo('HE-Data',SimulationParameters.cfgHE);
@@ -80,14 +90,47 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
             txPSDU = dataIn;
             tx = wlanWaveformGenerator(txPSDU,SimulationParameters.cfgHE);
             tx = tx.*(10^(SimulationParameters.Alice.txpower/20));
-
+            
             % Add trailing zeros to allow for channel filter delay
             txPad = [tx; zeros(15,SimulationParameters.cfgHE.NumTransmitAntennas)]; 
             
             % Pass the waveform through the Quadriga Channel
-            coeff = squeeze(channel.coeff);
+            coeff = squeeze(leg_channel);
             rx_time = conv(txPad,coeff,'same');
-            rx = awgn(rx_time,snr(i),'measured');
+            
+            % Pass the jamming signal to the Channel
+            j_coeff = squeeze(jam_channel);
+            rx_jam = conv(jammer_signal,j_coeff,'same');
+            
+            % N.B. In questo caso non utilizzo il multiband combinaer
+            % poichè il segnale di jamming è realizzato tramite il Barrage
+            % Jammer che modella un segnale di jamming ad ampio spettro
+            % come rumore gaussiano bianco.
+            
+
+            % Applico rumore
+            rx_with_noise = awgn(rx_time, snr(i),'measured');
+            n_pw = 10*log10(mean(abs(rx_time).^2)) - snr(i);
+            n_pw = 10^(n_pw/10);
+            
+
+            mbc = comm.MultibandCombiner( ...
+                     InputSampleRate=fs, ...
+                     FrequencyOffsets=[0 0], ...
+                     OutputSampleRateSource="Auto");
+            
+            % Dato che suppongo che il freq offset sia [0 0] per cui che il
+            % segnale di interferenza insiste su tutto il canale
+            % legittimo, posso considerare l'SINR come segue
+
+            sinr(i) = 10*log10(mean(abs(rx_time).^2)) - (  10*log10(mean(abs(rx_jam).^2) + n_pw));
+            
+            % Aggiungo il jammer
+            rx = mbc([rx_with_noise,rx_jam(1:length(rx_with_noise))]);
+            
+            
+
+
             % Packet detect and determine coarse packet offset
             coarsePktOffset = wlanPacketDetect(rx,SimulationParameters.cfgHE.ChannelBandwidth);
             if isempty(coarsePktOffset) % If empty no L-STF detected; packet error
@@ -214,15 +257,20 @@ function stats = perform_transmission(dataIn,channel,SimulationParameters)
         xlabel('SNR [dB]');
         ylabel('Channel capacity [bits per second]');
         title('802.11ax 20MHz, MCS3, Direct Mapping, 1x1 Quadriga Channel Model 3GPP 38.901 Indoor LOS');
-
     end
    
     stats.per = packetErrorRate;
     stats.ber = bitErrorRate;
     stats.channcap= channel_capacity;
     stats.txPSDU = txPSDU;
-    stats.rxPSDU = rxPSDU;
+    if exist('rxPSDU','var')
+        stats.rxPSDU = rxPSDU;
+        stats.rx = rx;
+    else
+        stats.rxPSDU = [];
+        stats.rx = [];
+    end
     stats.tx = tx;
-    stats.rx = rx;
+    stats.sinr = sinr;
 end
 

@@ -5,12 +5,20 @@ function [SimulationParameters] = parameters()
 % Node Positions
 SimulationParameters.Alice.pos = [0;0;1.5];
 SimulationParameters.Bob.pos = [5;5;1.5];
-SimulationParameters.Eve.pos = [-5;5;1.5];
+SimulationParameters.Eve.pos = [4;5;1.5];
+
+
 
 % Node Antennas
 SimulationParameters.Alice.antenna = 'half-wave-dipole';
 SimulationParameters.Bob.antenna = 'half-wave-dipole';
 SimulationParameters.Eve.antenna = 'half-wave-dipole';
+
+% Antenna's Power transmission
+SimulationParameters.Alice.txpower = 20;   % dBm 
+SimulationParameters.Bob.txpower = 20;
+SimulationParameters.Eve.txpower = 20;
+
 
 % Scenario
 SimulationParameters.Scenario = '3GPP_38.901_Indoor_LOS';
@@ -20,13 +28,13 @@ SimulationParameters.ScenarioPrec = 'quick';
 % Center Frequency
 SimulationParameters.C_Freq = 5e9;
 
-% Scenario Layout: Normal, Jamming, Reply, Eavesdropping (Passive)
+% Scenario Layout: Normal, Jamming, Replay, Eavesdropping (Passive)
 % Normal: Alice AP <-> Bob e Eve STA
 % Eavesdropping: Alice <-> Bob, Alice -> Eve, Bob -> Eve
 % Jamming: Alice AP <-> Bob STA , Eve -> Alice e Bob STA
-% Reply: Alice <-> Bob, Alice -> Eve -> Bob
+% Replay: Alice <-> Bob, Alice -> Eve -> Bob
 
-SimulationParameters.scen_layout = 'Reply';
+SimulationParameters.scen_layout = 'Jamming';
 
 
 % Show Layout and PowerMAP
@@ -39,12 +47,10 @@ SimulationParameters.show_transmission = true;
 
 
 % Waveform Configuration
-% An 802.11ax HT transmission is simulated in this example. The HT format
+% An 802.11ax HE transmission is simulated in this example. The HT format
 % configuration object, <docid:wlan_ref#buw6fyh wlanHTConfig>, contains the
 % format specific configuration of the transmission. The properties of the
-% object contain the configuration. In this example the object is
-% configured for a 20 MHz channel bandwidth, 2 transmit antennas, 2 space
-% time streams and no space time block coding.
+% object contain the configuration.
 
 SimulationParameters.cfgHE = wlanHESUConfig;
 SimulationParameters.cfgHE.ChannelBandwidth = 'CBW20';  % Channel bandwidth
@@ -63,8 +69,14 @@ SimulationParameters.cfgHE.MCS = 3;                     % Modulation and coding 
 % SNR
 SimulationParameters.SNR = 0:20;
 
+% Jammer Power
+  SimulationParameters.jammer_power = 15;   % Watt
+
 % VERBOSE
 
 SimulationParameters.verbose = false;
+
+
+
 end
 
